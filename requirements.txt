@@ -1,0 +1,15 @@
+# Core agent dependencies (versions to be pinned after agent build)
+langchain
+langchain-anthropic
+langgraph
+langchain-community
+
+# SQL validation
+sqlglot
+
+# UI (choose one)
+gradio
+# chainlit
+
+# Utilities
+python-dotenv
