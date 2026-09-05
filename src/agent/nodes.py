@@ -16,18 +16,26 @@ from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.agent.prompts import SQL_GENERATION_PROMPT, SYNTHESIS_PROMPT, SCOPE_CHECK_PROMPT
+from src.agent.prompts import SQL_GENERATION_PROMPT, SYNTHESIS_PROMPT
 from src.agent.tools import validate_sql, execute_sql
 
 load_dotenv()
 
+BLOCKED_TOPICS = {
+    "weather", "temperature", "rainfall", "climate", "forecast",
+    "nfl", "nba", "mlb", "nhl", "cricket", "football", "soccer", "sports",
+    "news", "politics", "election", "stock", "crypto", "bitcoin", "finance",
+    "recipe", "cooking", "food", "restaurant",
+    "movie", "music", "song", "lyrics", "netflix",
+    "export all", "dump", "download all", "print all",
+    "who is", "what is the capital", "translate", "define",
+}
+
 def is_in_scope(question: str) -> bool:
-    """Quick classifier — returns False for out-of-scope questions."""
-    prompt = SCOPE_CHECK_PROMPT.format(question=question)
-    response = llm.invoke([HumanMessage(content=prompt)])
-    answer = response.content.strip().upper()
-    print(f"[scope_check] {answer}")
-    return answer.startswith("YES")
+    q = question.lower()
+    if any(word in q for word in BLOCKED_TOPICS):
+        return False
+    return True
 
 # ── LLM setup ─────────────────────────────────────────────────────────────────
 llm = ChatAnthropic(
@@ -45,14 +53,6 @@ def clean_sql(raw: str) -> str:
     """Strip markdown fences and whitespace the LLM sometimes adds."""
     raw = re.sub(r"```sql|```", "", raw, flags=re.IGNORECASE)
     return raw.strip()
-
-def is_in_scope(question: str) -> bool:
-    """Quick classifier — returns False for out-of-scope questions."""
-    prompt = SCOPE_CHECK_PROMPT.format(question=question)
-    response = llm.invoke([HumanMessage(content=prompt)])
-    answer = response.content.strip().upper()
-    print(f"[scope_check] {answer}")
-    return answer.startswith("YES")
 
 def scope_check_node(state: dict) -> dict:
     """Gate node — blocks out-of-scope questions before any SQL generation."""

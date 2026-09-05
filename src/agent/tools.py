@@ -121,3 +121,21 @@ if __name__ == "__main__":
     ok, result = execute_sql(test_cases[3][1])
     print(result if ok else f"ERROR: {result}")
     print()
+
+def execute_sql_raw(sql: str) -> tuple[bool, list[dict], str]:
+    """
+    Like execute_sql but returns rows as list of dicts for JSON serialization.
+    Returns: (ok, rows, error_message)
+    """
+    if not DB_PATH.exists():
+        return False, [], f"Database not found at {DB_PATH}."
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return True, rows, ""
+    except sqlite3.Error as e:
+        return False, [], f"Database error: {e}"

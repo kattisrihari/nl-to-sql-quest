@@ -94,6 +94,12 @@ def run_query(question: str) -> str:
     result = agent.invoke(state)
     return result.get("answer", "No answer generated.")
 
+def run_query_full(question: str) -> dict:
+    """Returns full state including answer, sql, and raw results."""
+    agent = build_graph()
+    state = get_initial_state(question)
+    return agent.invoke(state)
+
 
 # ── Smoke test ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

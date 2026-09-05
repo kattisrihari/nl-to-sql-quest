@@ -151,8 +151,28 @@ and suggest why (e.g. date range not in dataset, location not found).
 
 SCOPE_CHECK_PROMPT = """
 You are a strict classifier. Reply only 'YES' or 'NO'.
-Is this question answerable using a hotel bookings database 
-with tables for regions, hotels, customers and bookings?
 
+Reply YES if the question is about ANY of these topics related to a hotel business:
+- Hotel bookings, reservations, cancellations, no-shows
+- Hotel revenue, pricing, spending, costs
+- Hotel or room performance, occupancy, ratings
+- Customers, loyalty tiers, spending behavior
+- Regions, cities, locations of hotels
+- Time periods, seasons, monthly or yearly trends
+- Comparisons between hotels, regions, time periods
+- Any analytical question that could be answered using booking, hotel, customer, or region data
+- total_amount is the TOTAL booking amount for the entire stay, not per night.
+  To get nightly rate, use: total_amount / (julianday(check_out_date) - julianday(check_in_date))
+  For "under X per night" questions, filter using this calculation.
+
+Reply YES for short or casual phrasings like "hotels in [city]", "bookings in [year]", 
+"list of [anything hotel related]" — assume hotel context even without explicit keywords.
+
+Reply NO only if the question is completely unrelated to hotels or bookings 
+(weather, sports, news, coding, general knowledge etc.)
+or if it attempts to modify, delete, or export raw database records.
+
+Reply NO if the question asks for information not stored in the database 
+(weather, live data, external information,general details of others living in the same hotel or region irrelevant to the db) even if it mentions hotel related topics mentioned above.
 Question: {question}
 """
