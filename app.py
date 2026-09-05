@@ -40,6 +40,7 @@ class QueryResponse(BaseModel):
     summary: str
     sql_query: str | None = None
     data: list[dict[str, Any]] | None = None
+    total_rows: int | None = None
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -50,26 +51,40 @@ def health():
 
 @app.post("/api/query", response_model=QueryResponse)
 def run_query(request: QueryRequest):
-    """
-    Accepts a natural language question, runs the full LangGraph agent,
-    and returns the AI summary, generated SQL, and raw data rows.
-    """
-    state = get_initial_state(request.query)
-    result = agent.invoke(state)
+    try:
+        state = get_initial_state(request.query)
+        result = agent.invoke(state)
 
-    summary   = result.get("answer", "No answer generated.")
-    sql       = result.get("sql", None)
-    raw_data  = []
+        if not result or not isinstance(result, dict):
+            return QueryResponse(
+                summary="I wasn't able to process that question. Please try rephrasing it.",
+                sql_query=None,
+                data=None,
+                total_rows=None,
+            )
 
-    # Fetch raw rows for the data table in the UI
-    # Only if SQL was generated and execution succeeded
-    if sql and not result.get("scope_blocked") and not result.get("execution_failed"):
-        ok, rows, _ = execute_sql_raw(sql)
-        if ok:
-            raw_data = rows
+        sql = result.get("sql", None)
+        raw_data = []
 
-    return QueryResponse(
-        summary=summary,
-        sql_query=sql if sql else None,
-        data=raw_data if raw_data else None,
-    )
+        if sql and not result.get("scope_blocked") and not result.get("execution_failed"):
+            ok, rows, _ = execute_sql_raw(sql)
+            if ok:
+                raw_data = rows
+
+        total_rows = len(raw_data)
+        display_data = raw_data[:50] if total_rows > 50 else raw_data
+
+        return QueryResponse(
+            summary=result.get("answer", "No answer generated."),
+            sql_query=sql or None,
+            data=display_data or None,
+            total_rows=total_rows if total_rows > 0 else None,
+        )
+
+    except Exception as e:
+        return QueryResponse(
+            summary=f"An error occurred processing your request. Please try again.",
+            sql_query=None,
+            data=None,
+            total_rows=None,
+        )

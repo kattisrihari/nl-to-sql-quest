@@ -27,7 +27,9 @@ def validate_sql(sql: str) -> tuple[bool, str]:
         (True, "OK")              → safe to execute
         (False, "reason string")  → do not execute, send reason back to LLM
     """
-    # 1. Block write operations
+    if not sql or not sql.strip():
+        return False, "No SQL was generated."
+
     tokens = set(sql.upper().split())
     blocked = tokens & BLOCKED_KEYWORDS
     if blocked:
@@ -42,7 +44,9 @@ def validate_sql(sql: str) -> tuple[bool, str]:
     # 3. sqlglot syntax check (dialect=sqlite)
     try:
         sqlglot.parse_one(sql, dialect="sqlite")
-    except sqlglot.errors.ParseError as e:
+
+    # To this:
+    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, Exception) as e:
         return False, f"SQL syntax error: {e}"
 
     return True, "OK"

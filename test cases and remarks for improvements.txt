@@ -1,0 +1,155 @@
+
+
+q:re there months with no bookings in 2025 and 2026
+
+a:No data was found for bookings in 2025 and 2026. This likely means either there are no bookings recorded for those years in your system yet, or the booking dates in your data fall outside this time range. I'd recommend checking whether your bookings data includes future years or if the dates are primarily from earlier periods.
+
+
+Generated SQL Query
+Copy
+WITH RECURSIVE months AS (
+  SELECT 1 AS month_num
+  UNION ALL
+  SELECT month_num + 1 FROM months WHERE month_num < 12
+),
+years AS (
+  SELECT 2025 AS year
+  UNION ALL
+  SELECT 2026
+),
+all_months AS (
+  SELECT y.year, m.month_num,
+         y.year || '-' || printf('%02d', m.month_num) AS year_month
+  FROM years y
+  CROSS JOIN months m
+),
+booking_months AS (
+  SELECT DISTINCT strftime('%Y-%m', check_in_date) AS year_month
+  FROM bookings
+)
+SELECT am.year_month, COALESCE(bm.year_month, 'NO BOOKINGS') AS status
+FROM all_months am
+LEFT JOIN booking_months bm ON am.year_month = bm.year_month
+WHERE bm.year_month IS NULL
+ORDER BY am.year_month;
+
+q: are there months with no bookings in 2025 and 2026
+
+a: No, there are no months with zero bookings in 2025 and 2026. All 24 months across both years have recorded bookings, ranging from a low of 8 bookings in July 2026 to a high of 56 bookings in October and November 2025. Every month from January through December is represented in both years.
+
+sql: WITH RECURSIVE months AS (
+  SELECT 1 AS month_num
+  UNION ALL
+  SELECT month_num + 1 FROM months WHERE month_num < 12
+),
+years AS (
+  SELECT 2025 AS year
+  UNION ALL
+  SELECT 2026
+),
+all_months AS (
+  SELECT y.year, m.month_num,
+         y.year || '-' || printf('%02d', m.month_num) AS year_month
+  FROM years y
+  CROSS JOIN months m
+),
+actual_bookings AS (
+  SELECT strftime('%Y-%m', b.check_in_date) AS year_month, COUNT(*) AS booking_count
+  FROM bookings b
+  GROUP BY year_month
+)
+SELECT am.year_month, COALESCE(ab.booking_count, 0) AS bookings
+FROM all_months am
+LEFT JOIN actual_bookings ab ON am.year_month = ab.year_month
+ORDER BY am.year_month;
+
+remarks: since facts like these are fixed, can we not store and cache them instead of running llm calls. does caching cause latency? discuss.
+
+q: what is the weather like in cities where our hotels are located
+
+a: I can only answer questions about hotel bookings data — regions, hotels, customers, bookings, revenue, and occupancy. Please ask something related to the hotel database
+
+q:give me exact city names which hotels are not from tier 1 cities in india. tier 2 tier 3 for example
+a: We found hotels in 21 tier 2 and tier 3 cities across India. These cities include popular destinations like Jaipur, Goa, Kochi, and Agra, as well as emerging markets such as Indore, Raipur, and Bhubaneswar. This represents a significant portion of your hotel portfolio outside the major metropolitan areas like Delhi, Mumbai, Bangalore, and Kolkata.
+
+sql: SELECT DISTINCT h.city
+FROM hotels h
+WHERE h.city NOT IN ('New Delhi', 'Mumbai', 'Bengaluru', 'Chennai', 'Kolkata', 'Hyderabad', 'Pune', 'Ahmedabad')
+ORDER BY h.city;
+
+q:okay can you give me hotel names from these places then?
+
+a:Based on your request, I found 3 hotels across the locations you were interested in: Leela Palace Bengaluru in Bengaluru, Budget Stay Coimbatore in Coimbatore, and Hotel Sandesh in Mysuru. These are the hotel names available in our system for those cities.
+
+sql: SELECT DISTINCT h.hotel_name, h.city
+FROM hotels h
+WHERE h.city IN ('Bengaluru', 'Mysuru', 'Coimbatore')
+ORDER BY h.city, h.hotel_name;
+
+remarks: it is giving me cities which aren't from the big list of tier 2 and tier 3 cities that it had listed. understanding?
+
+q: compare 2025 vs 2024 yearly performance
+
+a: I can see the 2025 data, but the query results only show one year instead of both 2025 and 2024 for comparison. To give you a proper year-over-year analysis, I'll need the 2024 figures as well. Once we have both years' data, we can compare metrics like the 410 total bookings, 16.8% cancellation rate, and ₹19.4 million revenue that 2025 is showing.
+
+SELECT
+    strftime('%Y', b.check_in_date) AS year,
+    COUNT(*) AS total_bookings,
+    SUM(CASE WHEN b.status = 'Completed' THEN 1 ELSE 0 END) AS completed_bookings,
+    SUM(CASE WHEN b.status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_bookings,
+    SUM(CASE WHEN b.status = 'No-show' THEN 1 ELSE 0 END) AS no_show_bookings,
+    ROUND(AVG(b.total_amount), 2) AS avg_booking_amount_inr,
+    ROUND(SUM(b.total_amount), 2) AS total_revenue_inr,
+    ROUND(AVG(b.num_guests), 2) AS avg_guests_per_booking,
+    ROUND(
+        SUM(CASE WHEN b.status = 'Cancelled' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1
+    ) AS cancellation_pct
+FROM bookings b
+WHERE strftime('%Y', b.check_in_date) IN ('2024', '2025')
+GROUP BY strftime('%Y', b.check_in_date)
+ORDER BY year;
+
+
+q: which is our best hotel
+
+a: Based on our data, the Taj Hotel & Convention in Agra is our best hotel. It holds a 5-star luxury rating and has generated the highest revenue at over 4 million rupees across 36 total bookings, with an impressive average booking value of approximately 113,471 rupees per reservation.
+
+data:
+hotel_id	hotel_name	city	star_rating	category	total_bookings	avg_booking_value	completed_bookings	total_revenue
+2	Taj Hotel & Convention	Agra	5	Luxury	36	113470.81	19
+
+sql:SELECT h.hotel_id, h.hotel_name, h.city, h.star_rating, h.category,
+       COUNT(b.booking_id) AS total_bookings,
+       ROUND(AVG(b.total_amount), 2) AS avg_booking_value,
+       SUM(CASE WHEN b.status = 'Completed' THEN 1 ELSE 0 END) AS completed_bookings,
+       ROUND(SUM(b.total_amount), 2) AS total_revenue
+FROM hotels h
+LEFT JOIN bookings b ON h.hotel_id = b.hotel_id
+GROUP BY h.hotel_id, h.hotel_name, h.city, h.star_rating, h.category
+ORDER BY total_revenue DESC, total_bookings DESC
+LIMIT 1;
+
+remarks: shouldn't we look into rank, dense rank or row number, or is the limit logic right?
+
+q:how are we doing this year
+
+a: We're tracking 410 total bookings so far this year with a completion rate of about 56%, generating ₹19.4 million in revenue at an average booking value of ₹47,320. However, our cancellation rate is running at 16.8%, which is worth monitoring, and we're averaging 1.9 guests per booking across confirmed reservations.
+
+sql: SELECT
+    strftime('%Y', check_in_date) AS year,
+    COUNT(*) AS total_bookings,
+    SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed_bookings,
+    SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_bookings,
+    SUM(CASE WHEN status = 'No-show' THEN 1 ELSE 0 END) AS no_show_bookings,
+    SUM(CASE WHEN status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed_bookings,
+    ROUND(AVG(total_amount), 2) AS avg_booking_value_inr,
+    ROUND(SUM(total_amount), 2) AS total_revenue_inr,
+    ROUND(SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) AS cancellation_pct,
+    ROUND(AVG(num_guests), 1) AS avg_guests_per_booking
+FROM bookings
+WHERE strftime('%Y', check_in_date) = '2025'
+GROUP BY year;
+
+remarks: isn't the current year 2026? and why is checkin_date being referred to 2025 in the where condition, this needs to be updated
+
+

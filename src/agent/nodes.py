@@ -2,10 +2,12 @@
 nodes.py — LangGraph node functions for the NL2SQL agent.
 
 Each function is a node in the graph:
-  1. generate_sql  → calls Claude to write SQL from the user's question
-  2. validate_sql  → checks SQL safety and syntax
-  3. execute_sql   → runs SQL against the DB
-  4. synthesize    → calls Claude to narrate the result in plain English
+  1. scope_check  → blocks out-of-scope questions
+  2. generate_sql → calls Claude to write SQL from the user's question
+  3. validate_sql → checks SQL safety and syntax
+  4. execute_sql  → runs SQL against the DB
+  5. synthesize   → calls Claude to narrate the result in plain English
+  6. fail_node    → friendly error message
 
 State flows through all nodes as a plain dict.
 """
@@ -14,13 +16,14 @@ import os
 import re
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 
 from src.agent.prompts import SQL_GENERATION_PROMPT, SYNTHESIS_PROMPT
 from src.agent.tools import validate_sql, execute_sql
 
 load_dotenv()
 
+# ── Scope blocklist ────────────────────────────────────────────────────────────
 BLOCKED_TOPICS = {
     "weather", "temperature", "rainfall", "climate", "forecast",
     "nfl", "nba", "mlb", "nhl", "cricket", "football", "soccer", "sports",
@@ -29,6 +32,7 @@ BLOCKED_TOPICS = {
     "movie", "music", "song", "lyrics", "netflix",
     "export all", "dump", "download all", "print all",
     "who is", "what is the capital", "translate", "define",
+    "kobe", "jordan", "mj", "celebrity", "who were", "are they friends",
 }
 
 def is_in_scope(question: str) -> bool:
@@ -42,7 +46,7 @@ llm = ChatAnthropic(
     model="claude-haiku-4-5-20251001",
     api_key=os.getenv("ANTHROPIC_API_KEY"),
     max_tokens=1000,
-    temperature=0,          # deterministic — we want consistent SQL, not creative
+    temperature=0,
 )
 
 MAX_RETRIES = 2
@@ -54,6 +58,9 @@ def clean_sql(raw: str) -> str:
     raw = re.sub(r"```sql|```", "", raw, flags=re.IGNORECASE)
     return raw.strip()
 
+
+# ── Node 0: Scope check ────────────────────────────────────────────────────────
+
 def scope_check_node(state: dict) -> dict:
     """Gate node — blocks out-of-scope questions before any SQL generation."""
     if not is_in_scope(state["question"]):
@@ -61,59 +68,73 @@ def scope_check_node(state: dict) -> dict:
     return {**state, "scope_blocked": False}
 
 
+def route_after_scope(state: dict) -> str:
+    if state.get("scope_blocked"):
+        return "fail"
+    return "generate"
+
+
 # ── Node 1: Generate SQL ───────────────────────────────────────────────────────
 
+REFUSAL_PHRASES = [
+    "cannot be answered", "i cannot", "not possible",
+    "no sql", "unable to", "don't have", "not in the database",
+]
+
 def generate_sql(state: dict) -> dict:
-    """
-    Ask Claude to generate SQL for the user's question.
-    On retries, include the previous error so the LLM can self-correct.
-    """
+    # Hard wall — refuse to run if retry cap already hit
+    if state.get("retry_count", 0) >= MAX_RETRIES:
+        print("[generate_sql] retry cap hit — forcing fail")
+        return {**state, "sql": "", "retry_count": MAX_RETRIES}
+
     question   = state["question"]
-    retry = state.get("retry_count", 0)  # already incremented by router    
+    retry      = state.get("retry_count", 0)
     prev_error = state.get("error", "")
 
-    # On retry, append the error as feedback so LLM knows what went wrong
     prompt = SQL_GENERATION_PROMPT.format(question=question)
     if retry > 0 and prev_error:
-        prompt += f"\n\nYour previous attempt failed with this error:\n{prev_error}\nPlease fix the SQL."
+        prompt += (
+            f"\n\nYour previous SQL attempt failed. "
+            f"Simplify your approach — avoid deeply nested subqueries. "
+            f"Use AVG() instead of MEDIAN(). Error was: {prev_error[:100]}"
+        )
 
     response = llm.invoke([HumanMessage(content=prompt)])
     sql = clean_sql(response.content)
 
-    print(f"\n[generate_sql] attempt {retry + 1}\n{sql}")
+    # Detect identical SQL — LLM is stuck, force fail
+    if sql == state.get("last_sql", ""):
+        print("[generate_sql] identical SQL detected — forcing fail")
+        return {**state, "sql": "", "retry_count": MAX_RETRIES}
 
-    return {**state, "sql": sql, "retry_count": retry}
+    # Detect LLM refusal to write SQL
+    if any(phrase in sql.lower() for phrase in REFUSAL_PHRASES):
+        print("[generate_sql] LLM refused — forcing fail")
+        return {**state, "sql": "", "retry_count": MAX_RETRIES}
+
+    print(f"\n[generate_sql] attempt {retry + 1}\n{sql}")
+    return {**state, "sql": sql, "last_sql": sql}
 
 
 # ── Node 2: Validate SQL ───────────────────────────────────────────────────────
 
 def validate_node(state: dict) -> dict:
-    """
-    Run safety + syntax checks. Sets 'valid' flag for the graph router.
-    """
+    """Run safety + syntax checks. Sets 'valid' flag for the graph router."""
     sql = state.get("sql", "")
     valid, message = validate_sql(sql)
-
     print(f"[validate_sql] valid={valid} | {message}")
-
     return {**state, "valid": valid, "error": message if not valid else ""}
 
 
 # ── Node 3: Execute SQL ────────────────────────────────────────────────────────
 
 def execute_node(state: dict) -> dict:
-    """
-    Run the validated SQL against hotel_bookings.db.
-    Sets 'execution_failed' flag so the graph router can direct to fail_node.
-    """
+    """Run the validated SQL against hotel_bookings.db."""
     sql = state.get("sql", "")
     ok, result = execute_sql(sql)
-
     print(f"[execute_sql] ok={ok}")
 
     if not ok:
-        # DB error — do NOT retry (SQL was syntactically valid but failed at runtime)
-        # Route directly to fail_node with a clear message
         return {**state, "execution_failed": True, "error": result, "results": ""}
 
     return {**state, "execution_failed": False, "results": result}
@@ -122,9 +143,7 @@ def execute_node(state: dict) -> dict:
 # ── Node 4: Synthesize answer ─────────────────────────────────────────────────
 
 def synthesize(state: dict) -> dict:
-    """
-    Ask Claude to turn raw SQL results into a plain-English answer.
-    """
+    """Ask Claude to turn raw SQL results into a plain-English answer."""
     question = state["question"]
     results  = state.get("results", "")
 
@@ -133,7 +152,6 @@ def synthesize(state: dict) -> dict:
 
     answer = response.content.strip()
     print(f"[synthesize]\n{answer}")
-
     return {**state, "answer": answer}
 
 
@@ -156,20 +174,15 @@ def fail_node(state: dict) -> dict:
     return {**state, "answer": answer}
 
 
-# ── Router — decides what happens after execution ────────────────────────────
+# ── Router: after execution ────────────────────────────────────────────────────
 
 def route_after_execution(state: dict) -> str:
-    """
-    Called by LangGraph after execute_node.
-      - "synthesize" → query ran fine, narrate the result
-      - "fail"       → runtime DB error, show friendly message
-    """
     if state.get("execution_failed"):
         return "fail"
     return "synthesize"
 
 
-# ── Router — decides what happens after validation ────────────────────────────
+# ── Router: after validation ───────────────────────────────────────────────────
 
 def route_after_validation(state: dict) -> str:
     if state.get("valid"):
@@ -181,8 +194,3 @@ def route_after_validation(state: dict) -> str:
 
     state["retry_count"] = retry
     return "retry"
-
-def route_after_scope(state: dict) -> str:
-    if state.get("scope_blocked"):
-        return "fail"
-    return "generate"

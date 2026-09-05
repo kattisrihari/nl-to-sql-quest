@@ -2,12 +2,11 @@
 graph.py — Wires all nodes into a LangGraph StateGraph.
 
 Flow:
-  generate_sql → validate → [retry loop or execute] → synthesize → END
+  scope_check → generate_sql → validate → [retry loop or execute] → synthesize → END
                                     ↑_______________|
 """
 
 from langgraph.graph import StateGraph, END
-# Add route_after_execution to the import
 from src.agent.nodes import (
     generate_sql,
     validate_node,
@@ -20,17 +19,20 @@ from src.agent.nodes import (
     route_after_scope,
 )
 
-# ── State schema ───────────────────────────────────────────────────────────────
-# All keys that flow through the graph
+
+# ── Initial state ──────────────────────────────────────────────────────────────
 def get_initial_state(question: str) -> dict:
     return {
-        "question":    question,
-        "sql":         "",
-        "valid":       False,
-        "error":       "",
-        "results":     "",
-        "answer":      "",
-        "retry_count": 0,
+        "question":         question,
+        "sql":              "",
+        "last_sql":         "",       # tracks previous SQL to detect stuck loops
+        "valid":            False,
+        "error":            "",
+        "results":          "",       # always reset — prevents state leak between queries
+        "answer":           "",
+        "retry_count":      0,
+        "scope_blocked":    False,
+        "execution_failed": False,
     }
 
 
@@ -39,63 +41,56 @@ def build_graph():
     graph = StateGraph(dict)
 
     # Register nodes
-    graph.add_node("generate",   generate_sql)
-    graph.add_node("validate",   validate_node)
-    graph.add_node("execute",    execute_node)
-    graph.add_node("synthesize", synthesize)
-    graph.add_node("fail",       fail_node)
-
-
-        # Register
     graph.add_node("scope_check", scope_check_node)
+    graph.add_node("generate",    generate_sql)
+    graph.add_node("validate",    validate_node)
+    graph.add_node("execute",     execute_node)
+    graph.add_node("synthesize",  synthesize)
+    graph.add_node("fail",        fail_node)
 
-    # Entry point changes
+    # Entry point
     graph.set_entry_point("scope_check")
 
-    # Add edges
-    graph.add_edge("generate", "validate")
+    # Fixed edges
+    graph.add_edge("generate",   "validate")
+    graph.add_edge("synthesize", END)
+    graph.add_edge("fail",       END)
+
+    # Conditional: scope check
     graph.add_conditional_edges(
         "scope_check",
         route_after_scope,
         {"generate": "generate", "fail": "fail"}
     )
 
-    graph.add_edge("synthesize", END)
-    graph.add_edge("fail",       END)
-
-    # Replace with this:
+    # Conditional: after execution
     graph.add_conditional_edges(
         "execute",
         route_after_execution,
-        {
-            "synthesize": "synthesize",
-            "fail":       "fail",
-        }
-        )
-    # Conditional edge — router decides after validation
+        {"synthesize": "synthesize", "fail": "fail"}
+    )
+
+    # Conditional: after validation (retry loop)
     graph.add_conditional_edges(
         "validate",
         route_after_validation,
-        {
-            "execute": "execute",
-            "retry":   "generate",   # loops back with error feedback
-            "fail":    "fail",
-        }
+        {"execute": "execute", "retry": "generate", "fail": "fail"}
     )
 
     return graph.compile()
 
 
-# ── Convenience runner ─────────────────────────────────────────────────────────
+# ── Convenience runners ────────────────────────────────────────────────────────
 def run_query(question: str) -> str:
-    """Run a natural language question through the full agent pipeline."""
+    """Returns just the answer string — used by CLI app."""
     agent = build_graph()
     state = get_initial_state(question)
     result = agent.invoke(state)
     return result.get("answer", "No answer generated.")
 
+
 def run_query_full(question: str) -> dict:
-    """Returns full state including answer, sql, and raw results."""
+    """Returns full state dict — used by FastAPI."""
     agent = build_graph()
     state = get_initial_state(question)
     return agent.invoke(state)

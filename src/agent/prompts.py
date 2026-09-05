@@ -51,12 +51,23 @@ Table: bookings
 
 IMPORTANT RULES:
 - Always use SQLite-compatible syntax
+-- When the user says "these places", "those cities", "from above", or references 
+  a previous result, re-query from scratch using the full logic rather than 
+  assuming context. Always be self-contained in a single SQL query.
+- "This year" or "curent year" = 2026, "last year" or "previous year" or "year before" = 2025. 
+  Never use strftime('%Y','now') — 2026 for current year queries.
+- Use strftime('%Y', 'now') only as a fallback — prefer hardcoded 2026 for "this year".
 - SQLite does not have MEDIAN(). To calculate median, use:
   SELECT AVG(val) FROM (SELECT val FROM t ORDER BY val 
   LIMIT 2 - (SELECT COUNT(*) FROM t) % 2 
   OFFSET (SELECT (COUNT(*) - 1) / 2 FROM t)).
 - For date filtering, use strftime('%Y-%m', date_column) = 'YYYY-MM' for month/year.
+- For "best/top 1" queries, use ORDER BY ... LIMIT 1.
+- For "top N" queries where ties should be included, use DENSE_RANK() OVER (ORDER BY metric DESC).
 - For year range filtering, use strftime('%Y', date_column) BETWEEN 'YYYY' AND 'YYYY'.
+- For relative time queries like "last 3 months", "last 30 days", "last 2 weeks":
+  use date('now', '-3 months'), date('now', '-30 days'), date('now', '-14 days')
+  Always apply to check_in_date and do NOT hardcode dates.
 - The hotel's region is in hotels.region_id (NOT customers.region_id) for location-based questions.
 - total_amount is in Indian Rupees (INR).
 - Never use DROP, DELETE, INSERT, UPDATE or any write operations.
@@ -115,6 +126,55 @@ FROM bookings
 WHERE strftime('%Y', check_in_date) = '2026'
 GROUP BY month
 ORDER BY month;
+
+Q: Which regions have above average bookings this year?
+SQL:
+SELECT r.region_name, COUNT(*) AS total_bookings
+FROM bookings b
+JOIN hotels h ON b.hotel_id = h.hotel_id
+JOIN regions r ON h.region_id = r.region_id
+WHERE strftime('%Y', b.check_in_date) = '2025'
+GROUP BY r.region_name
+HAVING COUNT(*) > (
+    SELECT AVG(booking_count) FROM (
+        SELECT COUNT(*) AS booking_count
+        FROM bookings b2
+        JOIN hotels h2 ON b2.hotel_id = h2.hotel_id
+        WHERE strftime('%Y', b2.check_in_date) = '2025'
+        GROUP BY b2.hotel_id
+    )
+)
+ORDER BY total_bookings DESC;
+
+Q: How are we doing this year?
+SQL:
+SELECT
+    COUNT(*) AS total_bookings,
+    ROUND(SUM(total_amount), 2) AS total_revenue_inr,
+    ROUND(AVG(total_amount), 2) AS avg_booking_value_inr,
+    ROUND(SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) AS cancellation_pct,
+    ROUND(AVG(num_guests), 1) AS avg_guests_per_booking
+FROM bookings
+WHERE strftime('%Y', check_in_date) = '2026';
+
+Q: Which states have total bookings above median this year?
+SQL:
+SELECT r.region_name, COUNT(*) AS total_bookings
+FROM bookings b
+JOIN hotels h ON b.hotel_id = h.hotel_id
+JOIN regions r ON h.region_id = r.region_id
+WHERE strftime('%Y', b.check_in_date) = '2026'
+GROUP BY r.region_name
+HAVING COUNT(*) > (
+    SELECT AVG(cnt) FROM (
+        SELECT COUNT(*) AS cnt
+        FROM bookings b2
+        JOIN hotels h2 ON b2.hotel_id = h2.hotel_id
+        WHERE strftime('%Y', b2.check_in_date) = '2026'
+        GROUP BY b2.hotel_id
+    )
+)
+ORDER BY total_bookings DESC;
 """
 
 # ── 3. SQL generation prompt ───────────────────────────────────────────────────
@@ -143,7 +203,14 @@ explaining to a non-technical hotel manager. Include the key numbers.
 If the question asks about missing or empty months, check if all 12 months appear 
 in the results. If yes, say no months were empty. If some are missing, name them.
 
+- All amounts are in Indian Rupees (INR). 
+  Express amounts in Indian format:
+  - Above 1 crore: use "₹X.XX crore" (1 crore = 10 million)  
+  - Above 1 lakh: use "₹X.XX lakh" (1 lakh = 100,000)
+  - Never use $ or "million" — always use ₹ with crore/lakh.
+
 Do not mention SQL or databases.
+Do not confuse booking statuses — "no-show", "cancelled", "completed", and "confirmed" are distinct statuses; never use one in place of another.
 Do not use markdown headers, bullet points, or formatting — plain prose only.
 If the results are empty, say clearly that no data was found for that query 
 and suggest why (e.g. date range not in dataset, location not found).
