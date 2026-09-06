@@ -51,7 +51,26 @@ User Question (Natural Language)
 **FastAPI** wraps the agent and serves the **React/TypeScript** frontend at `localhost:5173`.
 
 ---
+Execution flow
 
+```mermaid
+flowchart TD
+    __start__([Start]) --> scope_check
+    scope_check --> route_after_scope{route_after_scope}
+    route_after_scope -->|generate| generate
+    route_after_scope -->|fail| fail
+    generate --> validate
+    validate --> route_after_validation{route_after_validation}
+    route_after_validation -->|execute| execute
+    route_after_validation -->|retry| generate
+    route_after_validation -->|fail| fail
+    execute --> route_after_execution{route_after_execution}
+    route_after_execution -->|synthesize| synthesize
+    route_after_execution -->|fail| fail
+    synthesize --> __end__([End])
+    fail --> __end__([End])
+```
+---
 ## Industry Best Practices Applied
 
 | Practice | Implementation |
