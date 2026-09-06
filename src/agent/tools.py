@@ -13,7 +13,7 @@ import sqlite3
 import sqlglot
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "hotel_bookings.db"
+DB_PATH = Path(__file__).parent.parent.parent / "data" / "hotel_bookings_100k.db"
 
 # ── Blocked keywords — prevent any write operations ───────────────────────────
 BLOCKED_KEYWORDS = {"DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "TRUNCATE", "CREATE"}

@@ -56,18 +56,14 @@ def run_query(request: QueryRequest):
         result = agent.invoke(state)
 
         if not result or not isinstance(result, dict):
-            return QueryResponse(
-                summary="I wasn't able to process that question. Please try rephrasing it.",
-                sql_query=None,
-                data=None,
-                total_rows=None,
-            )
+            return QueryResponse(summary="Could not process that question.")
 
         sql = result.get("sql", None)
         raw_data = []
 
         if sql and not result.get("scope_blocked") and not result.get("execution_failed"):
-            ok, rows, _ = execute_sql_raw(sql)
+            ok, rows, err = execute_sql_raw(sql)
+            print(f"[api] execute_sql_raw ok={ok} rows={len(rows)} err={err}")  # ← add this
             if ok:
                 raw_data = rows
 
@@ -82,9 +78,6 @@ def run_query(request: QueryRequest):
         )
 
     except Exception as e:
-        return QueryResponse(
-            summary=f"An error occurred processing your request. Please try again.",
-            sql_query=None,
-            data=None,
-            total_rows=None,
-        )
+        print(f"[api] ERROR: {e}")  # ← add this
+        import traceback; traceback.print_exc()  # ← add this
+        return QueryResponse(summary="An error occurred processing your request. Please try again.")

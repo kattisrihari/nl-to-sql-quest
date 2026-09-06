@@ -22,6 +22,31 @@ from src.agent.prompts import SQL_GENERATION_PROMPT, SYNTHESIS_PROMPT
 from src.agent.tools import validate_sql, execute_sql
 
 load_dotenv()
+INJECTION_PATTERNS = [
+   "ignore previous instructions",
+    "ignore your instructions", 
+    "forget your instructions",
+    "forget you are",
+    "you are now a",
+    "print your source",
+    "reveal your prompt",
+    "show your system prompt",
+    "jailbreak",
+    "pretend you are not",
+    "DAN mode",
+    "unrestricted mode",
+]
+
+def sanitize_question(question: str) -> tuple[bool, str]:
+    """
+    Returns (is_clean, reason).
+    Detects prompt injection attempts before hitting the LLM.
+    """
+    q_lower = question.lower()
+    for pattern in INJECTION_PATTERNS:
+        if pattern in q_lower:
+            return False, f"Injection pattern detected: '{pattern}'"
+    return True, ""
 
 # ── Scope blocklist ────────────────────────────────────────────────────────────
 BLOCKED_TOPICS = {
@@ -33,6 +58,12 @@ BLOCKED_TOPICS = {
     "export all", "dump", "download all", "print all",
     "who is", "what is the capital", "translate", "define",
     "kobe", "jordan", "mj", "celebrity", "who were", "are they friends",
+    "ignore previous", "ignore instructions", "forget you",
+    "forget your", "print source", "system prompt",
+    "you are now", "new instructions", "disregard",
+    "act as", "pretend you are", "jailbreak",
+    "unrestricted", "bypass", "override instructions",
+    "reveal your", "show your prompt", "print your",
 }
 
 def is_in_scope(question: str) -> bool:
@@ -62,9 +93,16 @@ def clean_sql(raw: str) -> str:
 # ── Node 0: Scope check ────────────────────────────────────────────────────────
 
 def scope_check_node(state: dict) -> dict:
-    """Gate node — blocks out-of-scope questions before any SQL generation."""
+    # Check injection first
+    is_clean, reason = sanitize_question(state["question"])
+    if not is_clean:
+        print(f"[scope_check] injection detected: {reason}")
+        return {**state, "scope_blocked": True}
+
+    # Then scope check
     if not is_in_scope(state["question"]):
         return {**state, "scope_blocked": True}
+
     return {**state, "scope_blocked": False}
 
 
@@ -129,7 +167,6 @@ def validate_node(state: dict) -> dict:
 # ── Node 3: Execute SQL ────────────────────────────────────────────────────────
 
 def execute_node(state: dict) -> dict:
-    """Run the validated SQL against hotel_bookings.db."""
     sql = state.get("sql", "")
     ok, result = execute_sql(sql)
     print(f"[execute_sql] ok={ok}")
@@ -137,8 +174,8 @@ def execute_node(state: dict) -> dict:
     if not ok:
         return {**state, "execution_failed": True, "error": result, "results": ""}
 
-    return {**state, "execution_failed": False, "results": result}
-
+    results_capped = result[:3000] if len(result) > 3000 else result
+    return {**state, "execution_failed": False, "results": results_capped}
 
 # ── Node 4: Synthesize answer ─────────────────────────────────────────────────
 
@@ -149,7 +186,6 @@ def synthesize(state: dict) -> dict:
 
     prompt = SYNTHESIS_PROMPT.format(question=question, results=results)
     response = llm.invoke([HumanMessage(content=prompt)])
-
     answer = response.content.strip()
     print(f"[synthesize]\n{answer}")
     return {**state, "answer": answer}
