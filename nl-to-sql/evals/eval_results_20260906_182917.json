@@ -1,0 +1,120 @@
+{
+  "run_id": "20260906_182917",
+  "timestamp": "2026-09-06T18:29:42.990100",
+  "summary": {
+    "total_cases": 5,
+    "passed": 5,
+    "overall_pct": 100.0,
+    "total_points": 20,
+    "max_points": 20,
+    "avg_latency": 5.08
+  },
+  "by_category": {
+    "Core Business": {
+      "passed": 5,
+      "total": 5
+    }
+  },
+  "results": [
+    {
+      "id": "TC01",
+      "category": "Core Business",
+      "question": "How many bookings did we receive from each region during August 2026?",
+      "answer": "During August 2026, the West region led with 1,257 bookings, followed by the North region with 1,224 bookings. The South, Central, and East regions received 1,178, 1,025, and 1,016 bookings respectively, showing a fairly consistent distribution across all five regions with the West region performing",
+      "sql": "SELECT r.region_name, COUNT(*) AS bookings\nFROM bookings b\nJOIN hotels h ON b.hotel_id = h.hotel_id\nJOIN regions r ON h.region_id = r.region_id\nWHERE strftime('%Y-%m', b.check_in_date) = '2026-08'\nGRO",
+      "scores": {
+        "scope_correct": 1,
+        "sql_correct": 1,
+        "answer_quality": 1,
+        "no_hallucination": 1
+      },
+      "total": 4,
+      "max": 4,
+      "passed": true,
+      "latency_s": 5.53,
+      "missing_keywords": [],
+      "found_bad_words": [],
+      "notes": "The original assignment question \u2014 must always pass."
+    },
+    {
+      "id": "TC02",
+      "category": "Core Business",
+      "question": "What is the average booking value by hotel star rating?",
+      "answer": "The average booking value increases significantly with hotel star rating. Five-star hotels command the highest average booking value at \u20b999,397.20 per booking across 33,464 bookings, while four-star hotels average \u20b935,277.28, three-star hotels average \u20b918,221.16, and two-star hotels average \u20b910,185.",
+      "sql": "SELECT h.star_rating || ' star' AS rating,\n       ROUND(AVG(b.total_amount), 2) AS avg_booking_inr,\n       COUNT(*) AS total_bookings\nFROM bookings b\nJOIN hotels h ON b.hotel_id = h.hotel_id\nWHERE b.s",
+      "scores": {
+        "scope_correct": 1,
+        "sql_correct": 1,
+        "answer_quality": 1,
+        "no_hallucination": 1
+      },
+      "total": 4,
+      "max": 4,
+      "passed": true,
+      "latency_s": 3.99,
+      "missing_keywords": [],
+      "found_bad_words": [],
+      "notes": "Tests aggregation with GROUP BY on star rating."
+    },
+    {
+      "id": "TC03",
+      "category": "Core Business",
+      "question": "Show the top 5 hotels by revenue in 2026",
+      "answer": "In 2026, Taj Mahal Palace Mumbai leads hotel revenue with \u20b916.56 crore, followed closely by The Imperial New Delhi at \u20b915.62 crore and Taj Hotel & Convention in Agra at \u20b915.51 crore. The top five hotels generated between \u20b915.24 crore and \u20b916.56 crore in revenue, with booking volumes ranging from 1,4",
+      "sql": "SELECT h.hotel_id, h.hotel_name, h.city, ROUND(SUM(b.total_amount), 2) AS total_revenue_inr, COUNT(*) AS booking_count\nFROM bookings b\nJOIN hotels h ON b.hotel_id = h.hotel_id\nWHERE strftime('%Y', b.c",
+      "scores": {
+        "scope_correct": 1,
+        "sql_correct": 1,
+        "answer_quality": 1,
+        "no_hallucination": 1
+      },
+      "total": 4,
+      "max": 4,
+      "passed": true,
+      "latency_s": 4.1,
+      "missing_keywords": [],
+      "found_bad_words": [],
+      "notes": "Tests ORDER BY + LIMIT with year filter."
+    },
+    {
+      "id": "TC04",
+      "category": "Core Business",
+      "question": "What percentage of bookings were cancelled in 2026?",
+      "answer": "In 2026, 7,586 bookings were cancelled out of a total of 50,023 bookings, resulting in a cancellation rate of 15.17%. This means that approximately 1 in every 7 bookings was cancelled during that year.",
+      "sql": "SELECT\n    COUNT(*) AS total_bookings,\n    SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_bookings,\n    ROUND(\n        SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) * 100.0",
+      "scores": {
+        "scope_correct": 1,
+        "sql_correct": 1,
+        "answer_quality": 1,
+        "no_hallucination": 1
+      },
+      "total": 4,
+      "max": 4,
+      "passed": true,
+      "latency_s": 7.07,
+      "missing_keywords": [],
+      "found_bad_words": [],
+      "notes": "Tests percentage calculation with status filter."
+    },
+    {
+      "id": "TC05",
+      "category": "Core Business",
+      "question": "How does Direct booking compare to OTA channel bookings?",
+      "answer": "OTA channels drive significantly higher volume with 40,040 bookings generating \u20b9210.56 crore in revenue, compared to Direct bookings of 30,047 generating \u20b9159.11 crore. However, both channels perform similarly on per-booking metrics, with Direct bookings slightly edging out OTA at an average value o",
+      "sql": "SELECT\n    b.channel,\n    COUNT(*) AS total_bookings,\n    ROUND(SUM(b.total_amount), 2) AS total_revenue_inr,\n    ROUND(AVG(b.total_amount), 2) AS avg_booking_value_inr,\n    ROUND(AVG(b.num_guests), 1",
+      "scores": {
+        "scope_correct": 1,
+        "sql_correct": 1,
+        "answer_quality": 1,
+        "no_hallucination": 1
+      },
+      "total": 4,
+      "max": 4,
+      "passed": true,
+      "latency_s": 4.71,
+      "missing_keywords": [],
+      "found_bad_words": [],
+      "notes": "Tests channel comparison."
+    }
+  ]
+}
